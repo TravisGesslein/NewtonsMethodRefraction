@@ -273,11 +273,22 @@ int main()
         SetShaderValue(causticsShader, causticsTimeLoc, &time, SHADER_UNIFORM_FLOAT);
         glBindFramebuffer(GL_FRAMEBUFFER, causticsFBO);
         glViewport(0, 0, shadowMapResolution, shadowMapResolution);
-        glClearColor(0.2f, 0.2f, 0.2f, 1.0f);
+        glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+        rlDisableDepthMask();
+        rlDisableDepthTest();
+        // Enable additive blending for accumulating caustics contributions
+        glEnable(GL_BLEND);
+        glBlendFunc(GL_ONE, GL_ONE);
+        rlDisableBackfaceCulling();
         BeginMode3D(shadowCamera);
         DrawModel(causticsPlane, Vector3{ 0.0f, 0.0f, 0.0f }, 1.0f, WHITE);
         EndMode3D();
+        rlEnableDepthMask();
+        rlEnableDepthTest();
+        rlEnableBackfaceCulling();
+        // Disable blending after rendering caustics
+        glDisable(GL_BLEND);
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
         // --- Render Opaque Scene to FBO ---

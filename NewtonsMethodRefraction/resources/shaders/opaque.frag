@@ -120,7 +120,12 @@ float getCausticFactor(vec3 fragPos, vec2 shadowCoord)
     // Only apply caustics below water surface (y < 0)
     if (fragPos.y < 0.0)
     {
-        return texture(causticsMap, shadowCoord).r;
+        float result = texture(causticsMap, shadowCoord).r;
+        if (result == 0.0)
+        {
+            return 0.2;
+        }
+        return result;
     }
     return 1.0;
 }

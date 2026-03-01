@@ -1,4 +1,4 @@
-# Screen-Space Ray Tracing via Newton's Method  - for Accelerated Refractions and Caustics
+# Ultra-fast Screen-Space Refractions and Caustics via Newton's Method
 ## Implementation of Newton's Method for rendering refractions and caustics
 *Caustics are adapted from https://medium.com/@martinRenou/real-time-rendering-of-water-caustics-59cda1d74aa to use our novel application of Newton's method.*
 
