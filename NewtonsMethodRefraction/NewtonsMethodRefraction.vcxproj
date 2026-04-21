@@ -103,7 +103,7 @@
       <PreprocessorDefinitions>_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <RuntimeLibrary>MultiThreadedDebug</RuntimeLibrary>
-      <AdditionalIncludeDirectories>include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>include;vendor_imgui;vendor_rlimgui;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -121,7 +121,7 @@
       <PreprocessorDefinitions>NDEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
-      <AdditionalIncludeDirectories>include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>include;vendor_imgui;vendor_rlimgui;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -133,6 +133,11 @@
   <ItemGroup>
     <ClCompile Include="src\GPUTimer.cpp" />
     <ClCompile Include="src\main.cpp" />
+    <ClCompile Include="vendor_imgui\imgui.cpp" />
+    <ClCompile Include="vendor_imgui\imgui_draw.cpp" />
+    <ClCompile Include="vendor_imgui\imgui_tables.cpp" />
+    <ClCompile Include="vendor_imgui\imgui_widgets.cpp" />
+    <ClCompile Include="vendor_rlimgui\rlImGui.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="src\GPUTimer.h" />

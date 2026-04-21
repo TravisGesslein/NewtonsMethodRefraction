@@ -364,3 +364,6 @@ FodyWeavers.xsd
 
 # Include library files
 !NewtonsMethodRefraction/lib/*
+
+# ImGui runtime state (window positions/sizes)
+imgui.ini

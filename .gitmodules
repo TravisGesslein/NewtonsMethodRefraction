@@ -1,0 +1,6 @@
+[submodule "NewtonsMethodRefraction/vendor_imgui"]
+	path = NewtonsMethodRefraction/vendor_imgui
+	url = https://github.com/ocornut/imgui.git
+[submodule "NewtonsMethodRefraction/vendor_rlimgui"]
+	path = NewtonsMethodRefraction/vendor_rlimgui
+	url = https://github.com/raylib-extras/rlImGui.git

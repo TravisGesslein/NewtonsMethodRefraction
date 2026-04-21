@@ -1,8 +1,11 @@
 #include "raylib.h"
 #include "rlgl.h"
 #include "raymath.h"
+#include "rcamera.h"
 #include "external/glad.h"
 #include "GPUTimer.h"
+#include "imgui.h"
+#include "rlImGui.h"
 #include <iostream>
 
 // When enabled, success rates for refractions or caustics will be shown onscreen. The impact on performance is very high, so this should be turned off unless you are interested in seeing the success rates.
@@ -44,6 +47,7 @@ int main()
 
     Camera camera = { 0 };
     SetupCamera(camera, 0); // Use first preset
+    DisableCursor(); // capture mouse for FPS-style look
 
     // --- Create Main Scene FBO ---
     unsigned int fbo = 0, colorTex = 0, normalTex = 0, depthTex = 0;
@@ -206,7 +210,12 @@ int main()
     SetTargetFPS(60);
     DisableCursor();
 
+    rlImGuiSetup(true);
+    ImGui::GetIO().FontGlobalScale = 1.0f;
+
     GPUTimer gpuTimer;
+    AsyncGPUTimer timerShadow, timerCaustics, timerOpaque, timerSkybox, timerWater;
+    bool mouseCaptured = true;
     bool trackingTime = false;
     double accumulatedTime = 0.0;
     int accumulatedFrames = 0;
@@ -214,6 +223,29 @@ int main()
     // --- Main Render Loop ---
     while (!WindowShouldClose())
     {
+        // --- TAB toggles mouse capture so ImGui is interactable ---
+        if (IsKeyPressed(KEY_TAB)) {
+            mouseCaptured = !mouseCaptured;
+            if (mouseCaptured) DisableCursor();
+            else EnableCursor();
+        }
+
+        // --- Camera Free Movement (WASD + mouse, Space/LShift up/down) ---
+        // Movement is along the camera's own axes (including pitch) -- W follows view direction
+        if (mouseCaptured) {
+            const float moveSpeed = 10.0f * GetFrameTime();
+            const float mouseSens = 0.003f;
+            Vector2 mouseDelta = GetMouseDelta();
+            CameraYaw(&camera, -mouseDelta.x * mouseSens, false);
+            CameraPitch(&camera, -mouseDelta.y * mouseSens, true, false, false);
+            if (IsKeyDown(KEY_W)) CameraMoveForward(&camera, moveSpeed, false);
+            if (IsKeyDown(KEY_S)) CameraMoveForward(&camera, -moveSpeed, false);
+            if (IsKeyDown(KEY_A)) CameraMoveRight(&camera, -moveSpeed, false);
+            if (IsKeyDown(KEY_D)) CameraMoveRight(&camera, moveSpeed, false);
+            if (IsKeyDown(KEY_SPACE)) CameraMoveUp(&camera, moveSpeed);
+            if (IsKeyDown(KEY_LEFT_SHIFT)) CameraMoveUp(&camera, -moveSpeed);
+        }
+
         // --- Camera Preset Switching ---
         if (IsKeyPressed(KEY_ONE)) SetupCamera(camera, 0);
         else if (IsKeyPressed(KEY_TWO)) SetupCamera(camera, 1);
@@ -250,6 +282,7 @@ int main()
 #endif // READ_SUCCESS_STATS
 
         // --- Render Shadowmap ---
+        timerShadow.Begin();
         glBindFramebuffer(GL_FRAMEBUFFER, shadowFbo);
         glViewport(0, 0, shadowMapResolution, shadowMapResolution);
         glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
@@ -263,8 +296,10 @@ int main()
         DrawScene(pool);
         EndMode3D();
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        timerShadow.End();
 
         // --- Render Caustics ---
+        timerCaustics.Begin();
         Matrix shadowInvProjection = MatrixInvert(shadowProjection);
         Matrix shadowInvView = MatrixInvert(shadowView);
         SetShaderValueMatrix(causticsShader, causticsInvProjectionLoc, shadowInvProjection);
@@ -287,11 +322,15 @@ int main()
         rlEnableDepthMask();
         rlEnableDepthTest();
         rlEnableBackfaceCulling();
-        // Disable blending after rendering caustics
-        glDisable(GL_BLEND);
+        // Restore raylib's default blend state (SRC_ALPHA,ONE_MINUS_SRC_ALPHA).
+        // raylib assumes blending stays enabled after rlglInit; leaving it disabled
+        // here breaks alpha-masked rendering later in the frame (e.g. ImGui glyphs).
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        timerCaustics.End();
 
         // --- Render Opaque Scene to FBO ---
+        timerOpaque.Begin();
         glBindFramebuffer(GL_FRAMEBUFFER, fbo);
         glViewport(0, 0, screenWidth, screenHeight);
         glClearColor(0.1f, 0.1f, 0.1f, 0.0f);
@@ -309,10 +348,12 @@ int main()
         DrawScene(pool);
         EndMode3D();
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        timerOpaque.End();
 
         // --- Final Screen Rendering ---
         BeginDrawing();
         ClearBackground(RAYWHITE);
+        timerSkybox.Begin();
         BeginMode3D(camera);
         rlDisableBackfaceCulling();
         rlDisableDepthMask();
@@ -326,7 +367,9 @@ int main()
 
         // Show color buffer
         DrawTexturePro(TextureFromId(colorTex, screenWidth, screenHeight), Rectangle{ 0.0f, 0.0f, screenWidth, -screenHeight }, Rectangle{ 0.0f, 0.0f, screenWidth, screenHeight }, Vector2{ 0.0f, 0.0f }, 0.0f, WHITE);
+        timerSkybox.End();
 
+        timerWater.Begin();
         if (trackingTime)
         {
             gpuTimer.Begin();
@@ -340,6 +383,7 @@ int main()
             accumulatedTime += (double)elapsedTime / 1000000.0;
             accumulatedFrames++;
         }
+        timerWater.End();
 
         // Show pixel stats from SSBO
 #if(READ_SUCCESS_STATS)
@@ -359,10 +403,30 @@ int main()
             TakeScreenshot("screenshot.png");
             TraceLog(LOG_INFO, "Screenshot saved as screenshot.png");
         }
+
+        // --- ImGui perf overlay ---
+        rlImGuiBegin();
+        ImGui::SetNextWindowPos(ImVec2(10, 10), ImGuiCond_FirstUseEver);
+        ImGui::SetNextWindowSize(ImVec2(380, 0), ImGuiCond_FirstUseEver);
+        ImGui::Begin("Performance");
+        ImGui::Text("CPU frame:    %.2f ms  (%.0f FPS)", 1000.0 * GetFrameTime(), 1.0 / (GetFrameTime() > 0 ? GetFrameTime() : 1));
+        ImGui::Separator();
+        ImGui::Text("Shadow map:   %.3f ms", timerShadow.GetMs());
+        ImGui::Text("Caustics:     %.3f ms", timerCaustics.GetMs());
+        ImGui::Text("Opaque scene: %.3f ms", timerOpaque.GetMs());
+        ImGui::Text("Skybox+blit:  %.3f ms", timerSkybox.GetMs());
+        ImGui::Text("Water/refr:   %.3f ms", timerWater.GetMs());
+        ImGui::Separator();
+        ImGui::Text("TAB: toggle mouse capture (now %s)", mouseCaptured ? "ON" : "OFF");
+        ImGui::Text("1/2: preset views  |  T: benchmark  |  K: screenshot");
+        ImGui::End();
+        rlImGuiEnd();
+
         EndDrawing();
     }
 
     // --- Cleanup ---
+    rlImGuiShutdown();
     glDeleteTextures(1, &colorTex);
     glDeleteTextures(1, &normalTex);
     glDeleteTextures(1, &depthTex);

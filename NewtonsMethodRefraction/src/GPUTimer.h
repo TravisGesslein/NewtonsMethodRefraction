@@ -19,3 +19,22 @@ private:
     GLuint64 startTime, endTime;
     unsigned int queryID[2];
 };
+
+// Non-blocking variant. Begin() reads the oldest pending result if available (without
+// stalling), then issues a new timestamp query. End() closes the current measurement.
+// GetMs() returns an EMA-smoothed millisecond value lagging by up to NUM_SLOTS frames.
+class AsyncGPUTimer
+{
+public:
+    AsyncGPUTimer();
+    ~AsyncGPUTimer();
+    void Begin();
+    void End();
+    double GetMs() const { return m_ms; }
+private:
+    static const int NUM_SLOTS = 3;
+    unsigned int m_queryIds[NUM_SLOTS][2];
+    bool m_pending[NUM_SLOTS];
+    int m_writeIdx;
+    double m_ms;
+};

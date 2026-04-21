@@ -6,18 +6,43 @@
 
 ### Dependencies
 
-The only dependency is a small OpenGL wrapper called raylib. Library and header files are included in the repository.
+- **raylib** — small OpenGL wrapper. Prebuilt .lib and headers are included in the repository.
+- **Dear ImGui** — debug UI (added as a git submodule in `NewtonsMethodRefraction/vendor_imgui`, pinned to v1.92.4).
+- **rlImGui** — raylib backend for ImGui (submodule in `NewtonsMethodRefraction/vendor_rlimgui`).
+
+### Cloning
+
+The repo uses git submodules for ImGui and rlImGui, so clone with `--recursive`:
+
+```
+git clone --recursive <repo-url>
+```
+
+If you already cloned without `--recursive`, initialize the submodules:
+
+```
+git submodule update --init --recursive
+```
 
 ### Building
 
-The Visual Studio solution is ready for building.
+Open `NewtonsMethodRefraction.sln` in Visual Studio 2022 and build (Debug or Release, x64).
 
-### More information
+### Controls
 
-Controls in the app: use the number keys to switch between preset viewpoints (there are currently 2, activated by the '1' and '2' keys).
+- **WASD** — move along camera axes (W follows view direction, including pitch)
+- **Mouse** — look
+- **Space / Left Shift** — move up/down in world space
+- **1 / 2** — snap to preset viewpoints
+- **TAB** — toggle mouse capture (release to interact with the ImGui overlay)
+- **T** — start/stop benchmarking the water shader (prints average frame time to stdout)
+- **K** — save `screenshot.png` in the working directory
+- **Esc** — quit
 
-Snippets of code can be commented/uncommmented to record success and failure rates for either caustics or eye-ray refractions.
+### ImGui perf overlay
 
-Press the 'T' key to begin benchmarking the water shader. Press 'T' again to end benchmarking and print the average computation time. Note that the water shader also contains screen-space reflections and other effects by default, bloating its execution time.
+The debug window in the top-left shows per-pass GPU timings (shadow, caustics, opaque, skybox+blit, water/refraction) using an async double-buffered `GL_TIMESTAMP` query, so it doesn't stall the CPU/GPU.
 
-Press the 'K' key to take a screenshot called 'screenshot.png' in the working directory.
+### Success-rate counters
+
+Snippets of code can be commented/uncommented to record success and failure rates for either caustics or eye-ray refractions. Note that the water shader also contains screen-space reflections and other effects by default, bloating its execution time.
