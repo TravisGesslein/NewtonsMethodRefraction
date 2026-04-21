@@ -96,8 +96,9 @@ float computeShadow(vec3 normal, vec2 fragTexCoord, vec3 l)
         // Rotate and scale Poisson disk sample
         vec2 poisson = rotate(poissonPoints[i], angle) * radius;
 
-        // Sample shadow map with offset
-        float shadow = textureOffset(shadowMap, shadowCoord.xy, ivec2(poisson.x, poisson.y)).r;
+        // Sample shadow map with offset (AMD requires compile-time-const offsets for textureOffset, so convert px -> UV)
+        vec2 shadowMapTexelSize = 1.0 / vec2(textureSize(shadowMap, 0));
+        float shadow = texture(shadowMap, shadowCoord.xy + poisson * shadowMapTexelSize).r;
 
         // Cone depth bias to reduce shadow acne
         float additionalBias = 0.0001 * length(poisson);
