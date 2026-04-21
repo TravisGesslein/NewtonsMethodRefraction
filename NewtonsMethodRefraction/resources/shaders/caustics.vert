@@ -20,6 +20,11 @@ uniform sampler2D texNormal; // Normal map
 uniform sampler2D texNormal2; // Second normal map
 uniform float time;
 uniform vec3 sunPos;
+// World-space extents of the water surface, so we can compute a tile-independent UV
+// for sampling the water normal maps (the mesh may be split into multiple tiles to
+// work around raylib's 16-bit mesh index limit).
+uniform vec2 waterMin;
+uniform vec2 waterSize;
 
 // Output vertex attributes (to fragment shader)
 out vec3 oldPos;
@@ -322,10 +327,15 @@ void main()
     float timeScale = 0.1;
     vec2 timeOffset = vec2(time, 0) * timeScale;
 
-    vec3 n = (texture(texNormal, vertexTexCoord + timeOffset).xyz * 2) - 1; // Normal from normal map
+    // Tile-independent UV derived from world position so the normal-map pattern is
+    // continuous across tile boundaries.
+    vec3 worldVertexPos = vec3(matModel * vec4(vertexPosition, 1.0));
+    vec2 waterUV = (worldVertexPos.xz - waterMin) / waterSize;
+
+    vec3 n = (texture(texNormal, waterUV + timeOffset).xyz * 2) - 1; // Normal from normal map
     n = normalize(n); // Normalize the normal vector
     n = n.xzy;
-    vec3 n2 = (texture(texNormal2, vertexTexCoord - timeOffset).xyz * 2) - 1;
+    vec3 n2 = (texture(texNormal2, waterUV - timeOffset).xyz * 2) - 1;
     n2 = normalize(n2);
     n2 = n2.xzy;
 
@@ -393,8 +403,12 @@ void main()
 
 	newPos = GetWorldPosFromDepth(intersectionPoint.xy, depth * 2.0 - 1.0);
 
-    vec2 closestPoint = findClosestPointOnRay(newPos, refractedRay) * vec2(SCREEN_WIDTH, SCREEN_HEIGHT);
-    vec2 curPoint = intersectionPoint.xy * vec2(SCREEN_WIDTH, SCREEN_HEIGHT);
+    // Use the shadow-map (depthBuffer) size, since that's the resolution this caustics pass
+    // rasterizes into. Previously used hardcoded camera SCREEN_WIDTH/SCREEN_HEIGHT, which was
+    // the wrong frame of reference and got more punishing at high tessellation.
+    vec2 passSize = vec2(textureSize(depthBuffer, 0));
+    vec2 closestPoint = findClosestPointOnRay(newPos, refractedRay) * passSize;
+    vec2 curPoint = intersectionPoint.xy * passSize;
     // If we're more than 1 pixel away from the refracted ray, mark the pixel as failed (i.e. only accept results identical to screen-space raymarching)
     if (distance(curPoint, closestPoint) > 1.0)
     {

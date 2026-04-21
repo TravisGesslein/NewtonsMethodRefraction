@@ -7,6 +7,7 @@
 #include "imgui.h"
 #include "rlImGui.h"
 #include <iostream>
+#include <vector>
 
 // When enabled, success rates for refractions or caustics will be shown onscreen. The impact on performance is very high, so this should be turned off unless you are interested in seeing the success rates.
 // Regardless of whether this is enabled, the shaders will still tally success rates with atomic counters, and the success rate SSBO will be cleared each frame.
@@ -15,7 +16,12 @@
 
 // --- Constants ---
 constexpr int shadowMapResolution = 2048;
-constexpr int causticsResolution = 200;
+constexpr int causticsResolution = 1000;
+// raylib's Mesh stores vertex indices as unsigned short, so a single caustics mesh is capped at
+// (254+1)^2 = 65025 vertices. We split the caustics emitter into a grid of tiles to exceed that.
+constexpr int causticsMaxTileRes = 254;
+constexpr int causticsTilesPerSide = (causticsResolution + causticsMaxTileRes - 1) / causticsMaxTileRes;
+constexpr int causticsPerTileRes = (causticsResolution + causticsTilesPerSide - 1) / causticsTilesPerSide;
 
 // --- Function Declarations ---
 void GenerateShadowmap(unsigned int& shadowFBO, unsigned int& shadowDepthTex, unsigned int& shadowNormalTex);
@@ -155,8 +161,18 @@ int main()
     Shader shadowShader = LoadShader("resources/shaders/opaque.vert", "resources/shaders/shadow.frag");
     opaqueShader.locs[SHADER_LOC_MAP_HEIGHT] = GetShaderLocation(opaqueShader, "shadowMap");
 
-    // --- Caustics FBO and Plane ---
-    Model causticsPlane = LoadModelFromMesh(GenMeshPlane(poolBounds.max.x - poolBounds.min.x, poolBounds.max.z - poolBounds.min.z, causticsResolution, causticsResolution));
+    // --- Caustics FBO and Plane (tiled to stay under raylib's 16-bit index limit) ---
+    const float causticsWaterW = poolBounds.max.x - poolBounds.min.x;
+    const float causticsWaterH = poolBounds.max.z - poolBounds.min.z;
+    const float causticsTileW = causticsWaterW / causticsTilesPerSide;
+    const float causticsTileH = causticsWaterH / causticsTilesPerSide;
+    std::vector<Mesh> causticsTileMeshes;
+    causticsTileMeshes.reserve(causticsTilesPerSide * causticsTilesPerSide);
+    for (int tz = 0; tz < causticsTilesPerSide; ++tz) {
+        for (int tx = 0; tx < causticsTilesPerSide; ++tx) {
+            causticsTileMeshes.push_back(GenMeshPlane(causticsTileW, causticsTileH, causticsPerTileRes, causticsPerTileRes));
+        }
+    }
     unsigned int causticsFBO = 0, causticsTexture = 0, causticsDepthRBO = 0;
     {
         glGenFramebuffers(1, &causticsFBO);
@@ -197,7 +213,18 @@ int main()
     // --- Material Setup ---
     SetupWaterMaterial(plane, TextureFromId(colorTex, screenWidth, screenHeight), TextureFromId(normalTex, screenWidth, screenHeight), TextureFromId(depthTex, screenWidth, screenHeight), waterNormals1, waterNormals2, skybox, screenWidth, screenHeight, waterShader);
     SetupPoolMaterial(pool, poolTexture, TextureFromId(shadowDepthTex, shadowMapResolution, shadowMapResolution), TextureFromId(causticsTexture, shadowMapResolution, shadowMapResolution), opaqueShader);
-    SetupCausticsMaterial(causticsPlane, TextureFromId(shadowDepthTex, shadowMapResolution, shadowMapResolution), TextureFromId(shadowNormalTex, shadowMapResolution, shadowMapResolution), waterNormals1, waterNormals2, causticsShader);
+    // Single shared material for all caustics tiles.
+    Material causticsMaterial = LoadMaterialDefault();
+    causticsMaterial.shader = causticsShader;
+    causticsMaterial.maps[MATERIAL_MAP_ALBEDO].texture = TextureFromId(shadowDepthTex, shadowMapResolution, shadowMapResolution);
+    causticsMaterial.maps[MATERIAL_MAP_OCCLUSION].texture = TextureFromId(shadowNormalTex, shadowMapResolution, shadowMapResolution);
+    causticsMaterial.maps[MATERIAL_MAP_NORMAL].texture = waterNormals1;
+    causticsMaterial.maps[MATERIAL_MAP_HEIGHT].texture = waterNormals2;
+    // Tile-independent water bounds for normal-map UV derivation in the shader.
+    Vector2 waterMinUniform = { -causticsWaterW * 0.5f, -causticsWaterH * 0.5f };
+    Vector2 waterSizeUniform = { causticsWaterW, causticsWaterH };
+    SetShaderValue(causticsShader, GetShaderLocation(causticsShader, "waterMin"), &waterMinUniform, SHADER_UNIFORM_VEC2);
+    SetShaderValue(causticsShader, GetShaderLocation(causticsShader, "waterSize"), &waterSizeUniform, SHADER_UNIFORM_VEC2);
     opaqueShader.locs[SHADER_LOC_MAP_EMISSION] = GetShaderLocation(opaqueShader, "causticsMap");
 
     // --- SSBO for Pixel Stats ---
@@ -317,7 +344,14 @@ int main()
         glBlendFunc(GL_ONE, GL_ONE);
         rlDisableBackfaceCulling();
         BeginMode3D(shadowCamera);
-        DrawModel(causticsPlane, Vector3{ 0.0f, 0.0f, 0.0f }, 1.0f, WHITE);
+        for (int tz = 0; tz < causticsTilesPerSide; ++tz) {
+            for (int tx = 0; tx < causticsTilesPerSide; ++tx) {
+                const float cx = ((float)tx - (causticsTilesPerSide - 1) * 0.5f) * causticsTileW;
+                const float cz = ((float)tz - (causticsTilesPerSide - 1) * 0.5f) * causticsTileH;
+                Matrix tileXform = MatrixTranslate(cx, 0.0f, cz);
+                DrawMesh(causticsTileMeshes[tz * causticsTilesPerSide + tx], causticsMaterial, tileXform);
+            }
+        }
         EndMode3D();
         rlEnableDepthMask();
         rlEnableDepthTest();
@@ -435,7 +469,8 @@ int main()
     glDeleteFramebuffers(1, &causticsFBO);
     glDeleteRenderbuffers(1, &causticsDepthRBO);
     UnloadShader(causticsShader);
-    UnloadModel(causticsPlane);
+    for (Mesh& m : causticsTileMeshes) UnloadMesh(m);
+    // causticsMaterial's shader/textures are shared and unloaded elsewhere, so we don't call UnloadMaterial on it.
     UnloadModel(pool);
     UnloadShader(opaqueShader);
     UnloadTexture(poolTexture);
